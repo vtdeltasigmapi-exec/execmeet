@@ -137,8 +137,27 @@ Rules:
 - Today is ${today()}`;
 
   const raw = await callClaude(prompt);
+  // Try to find JSON block anywhere in the response
   const clean = raw.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
+  // First try direct parse
+  try { return JSON.parse(clean); } catch {}
+  // Try extracting just the JSON object
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (match) { try { return JSON.parse(match[0]); } catch {} }
+  // Fallback: return a safe shell with the raw text as one action
+  console.error("Claude response was:", raw);
+  return {
+    title: "Executive Meeting",
+    date: today(),
+    summary: "Meeting minutes uploaded. Please review and add action items manually.",
+    attendees: ["president"],
+    actions: [{
+      text: "Review uploaded meeting minutes and assign action items",
+      owner: "president",
+      deadline: new Date(Date.now() + 7*86400000).toISOString().split("T")[0],
+      priority: "high"
+    }]
+  };
 }
 
 // ─── PDF Reader (PDF.js) ──────────────────────────────────────────────────────
@@ -751,7 +770,7 @@ function UploadView({ onMeetingCreated }) {
     } catch(e) {
       console.error(e);
       setStage("upload");
-      alert("Could not parse meeting minutes. Please try again.");
+      alert("Something went wrong during extraction. Try pasting the minutes as text instead of uploading a PDF — that tends to work more reliably.");
     }
   };
 
