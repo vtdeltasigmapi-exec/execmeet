@@ -141,37 +141,39 @@ Rules:
   return JSON.parse(clean);
 }
 
-// ─── PDF Reader ───────────────────────────────────────────────────────────────
-async function readPdfText(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64 = e.target.result.split(",")[1];
-      // Use Claude to extract text from PDF via base64
-      try {
-        const res = await fetch(ANTHROPIC_API, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1000,
-            messages: [{
-              role: "user",
-              content: [
-                { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-                { type: "text", text: "Extract and return the full text content of this document. Return only the raw text, no formatting or commentary." }
-              ]
-            }]
-          })
-        });
-        const data = await res.json();
-        resolve(data.content?.[0]?.text || "");
-      } catch {
-        resolve("");
-      }
+// ─── PDF Reader (PDF.js) ──────────────────────────────────────────────────────
+async function loadPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(window.pdfjsLib);
     };
-    reader.readAsDataURL(file);
+    script.onerror = reject;
+    document.head.appendChild(script);
   });
+}
+
+async function readPdfText(file) {
+  try {
+    const pdfjsLib = await loadPdfJs();
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(" ");
+      fullText += pageText + "\n";
+    }
+    return fullText.trim();
+  } catch (err) {
+    console.error("PDF.js error:", err);
+    return "";
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -183,24 +185,24 @@ const S = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #f5f3ee;
-  --surface: #faf9f6;
+  --bg: #f7f5fa;
+  --surface: #faf9fc;
   --card: #ffffff;
-  --border: #e2ded6;
-  --border2: #ccc9c0;
-  --text: #1a1916;
-  --muted: #6b6860;
-  --accent: #1a3a2a;
-  --accent2: #2d5c42;
-  --accent-light: #e8f0eb;
-  --gold: #b8943f;
-  --gold-light: #f5edd8;
-  --danger: #c0392b;
-  --danger-light: #fdf0ef;
-  --warn: #b7791f;
-  --warn-light: #fef9ee;
-  --success: #1a6b3a;
-  --success-light: #edf6f0;
+  --border: #e4dff0;
+  --border2: #cdc5e0;
+  --text: #1a1624;
+  --muted: #6b6278;
+  --accent: #3b1f6e;
+  --accent2: #522d96;
+  --accent-light: #ede8f8;
+  --gold: #b8922a;
+  --gold-light: #fdf3dc;
+  --danger: #b91c1c;
+  --danger-light: #fef2f2;
+  --warn: #92610a;
+  --warn-light: #fefce8;
+  --success: #166534;
+  --success-light: #f0fdf4;
   --radius: 10px;
   --radius-lg: 16px;
 }
@@ -213,24 +215,24 @@ body { background: var(--bg); color: var(--text); font-family: 'Figtree', sans-s
 
 /* ── Layout ── */
 .root { display: flex; height: 100vh; overflow: hidden; }
-.sidebar { width: 260px; min-width: 260px; background: var(--accent); display: flex; flex-direction: column; overflow: hidden; }
+.sidebar { width: 260px; min-width: 260px; background: #2a1650; display: flex; flex-direction: column; overflow: hidden; border-right: 3px solid #b8922a; }
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 .content { flex: 1; overflow-y: auto; padding: 28px 32px; }
 
 /* ── Sidebar ── */
 .sb-top { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-.sb-brand { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.sb-brand { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 800; color: #f5d98a; letter-spacing: -0.01em; }
 .sb-sub { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 3px; }
 .sb-section { padding: 14px 12px 6px; }
 .sb-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(255,255,255,0.35); padding: 0 8px; margin-bottom: 4px; }
 .nav-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border-radius: 8px; background: none; border: none; color: rgba(255,255,255,0.65); font-family: 'Figtree', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; text-align: left; }
 .nav-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
-.nav-btn.active { background: rgba(255,255,255,0.15); color: #fff; }
+.nav-btn.active { background: rgba(184,146,42,0.25); color: #f5d98a; border-left: 3px solid #f5d98a; }
 .nav-icon { font-size: 15px; width: 20px; text-align: center; opacity: 0.8; }
 .sb-meetings { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
 .sb-meeting-item { padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s; margin-bottom: 3px; }
 .sb-meeting-item:hover { background: rgba(255,255,255,0.08); }
-.sb-meeting-item.active { background: rgba(255,255,255,0.15); }
+.sb-meeting-item.active { background: rgba(184,146,42,0.2); border-left: 3px solid #f5d98a; }
 .sb-meeting-title { font-size: 12px; color: rgba(255,255,255,0.85); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-meeting-date { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 2px; }
 .sb-footer { padding: 14px 20px; border-top: 1px solid rgba(255,255,255,0.1); }
@@ -240,15 +242,15 @@ body { background: var(--bg); color: var(--text); font-family: 'Figtree', sans-s
 .ai-label { font-size: 11px; color: rgba(255,255,255,0.5); }
 
 /* ── Topbar ── */
-.topbar { padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 16px; }
+.topbar { padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 16px; border-left: 4px solid var(--accent); }
 .topbar-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700; flex: 1; }
 .topbar-meta { font-size: 12px; color: var(--muted); }
 
 /* ── Buttons ── */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border2); background: var(--card); color: var(--text); font-family: 'Figtree', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.btn-primary { background: var(--gold); border-color: var(--gold); color: #fff; }
+.btn-primary:hover { background: #a07828; border-color: #a07828; color: #fff; }
 .btn-gold { background: var(--gold); border-color: var(--gold); color: #fff; }
 .btn-gold:hover { background: #a07d35; border-color: #a07d35; color: #fff; }
 .btn-sm { padding: 5px 11px; font-size: 12px; }
@@ -305,7 +307,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Figtree', sans-s
 
 /* ── Upload ── */
 .upload-zone { border: 2px dashed var(--border2); border-radius: var(--radius-lg); padding: 48px 32px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--surface); }
-.upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: var(--accent-light); }
+.upload-zone:hover, .upload-zone.drag { border-color: var(--gold); background: var(--gold-light); }
 .upload-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
 .upload-title { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; margin-bottom: 6px; }
 .upload-sub { font-size: 13px; color: var(--muted); }
@@ -356,7 +358,7 @@ select.input { cursor: pointer; }
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px; color: var(--muted); text-align: center; }
 .empty-icon { font-size: 32px; margin-bottom: 10px; opacity: 0.35; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.notif { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #fff; border-radius: 10px; padding: 12px 18px; font-size: 13px; z-index: 300; display: flex; align-items: center; gap: 8px; animation: slideUp 0.3s ease; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+.notif { position: fixed; bottom: 24px; right: 24px; background: var(--gold); color: #fff; border-radius: 10px; padding: 12px 18px; font-size: 13px; z-index: 300; display: flex; align-items: center; gap: 8px; animation: slideUp 0.3s ease; box-shadow: 0 4px 20px rgba(184,146,42,0.35); }
 @keyframes slideUp { from{transform:translateY(16px);opacity:0} to{transform:translateY(0);opacity:1} }
 .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; padding: 0 5px; }
 `;
@@ -436,7 +438,7 @@ function Dashboard({ meetings, onNav }) {
         </div>
         <div className="stat-card">
           <div className="stat-label">Open Actions</div>
-          <div className="stat-num" style={{ color: "var(--warn)" }}>{pending.length}</div>
+          <div className="stat-num" style={{ color: "var(--gold)" }}>{pending.length}</div>
           <div className="stat-sub">across all positions</div>
         </div>
         <div className="stat-card">
